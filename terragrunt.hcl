@@ -43,7 +43,6 @@ remote_state {
     kms_key_id   = local.state_kms_key_arn
     use_lockfile = true
 
-    role_arn              = "arn:aws:iam::${local.aws_account_id}:role/${local.role_name}"
     disable_bucket_update = true
   }
 }
@@ -66,11 +65,6 @@ terraform {
 
 provider "aws" {
   region = "${local.aws_region}"
-
-  assume_role {
-    role_arn     = "arn:aws:iam::${local.aws_account_id}:role/${local.role_name}"
-    session_name = "terragrunt-${local.environment}"
-  }
 
   default_tags {
     tags = ${jsonencode(local.common_tags)}
