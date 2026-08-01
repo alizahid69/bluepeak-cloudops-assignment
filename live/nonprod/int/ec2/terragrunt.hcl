@@ -39,9 +39,9 @@ dependency "rds" {
   config_path = "../rds"
 
   mock_outputs = {
-    db_endpoint           = "mock-db.internal"
-    db_port               = 5432
-    database_name         = "counterdb"
+    db_endpoint            = "mock-db.internal"
+    db_port                = 5432
+    database_name          = "counterdb"
     master_user_secret_arn = "arn:aws:secretsmanager:ap-south-1:111111111111:secret:mock"
   }
 
@@ -56,10 +56,10 @@ inputs = {
   secrets_kms_key_arn = dependency.kms.outputs.key_arns.secrets
   logs_kms_key_arn    = dependency.kms.outputs.key_arns.logs
 
-  db_endpoint    = dependency.rds.outputs.db_endpoint
-  db_port        = dependency.rds.outputs.db_port
-  database_name  = dependency.rds.outputs.database_name
-  db_secret_arn  = dependency.rds.outputs.master_user_secret_arn
+  db_endpoint   = dependency.rds.outputs.db_endpoint
+  db_port       = dependency.rds.outputs.db_port
+  database_name = dependency.rds.outputs.database_name
+  db_secret_arn = dependency.rds.outputs.master_user_secret_arn
 
   instance_type    = local.env.locals.instance_type
   application_port = local.env.locals.application_port

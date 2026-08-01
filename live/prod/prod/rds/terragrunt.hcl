@@ -50,7 +50,7 @@ inputs = {
   secrets_kms_key_arn        = dependency.kms.outputs.key_arns.secrets
 
   instance_class          = local.env.locals.rds_instance_class
-  multi_az               = local.env.locals.rds_multi_az
+  multi_az                = local.env.locals.rds_multi_az
   backup_retention_period = local.env.locals.rds_backup_retention
   deletion_protection     = local.env.locals.rds_deletion_protection
   skip_final_snapshot     = local.env.locals.rds_skip_final_snapshot
