@@ -27,7 +27,6 @@ jobs:
 
     outputs:
       working_directory: ${{ steps.environment.outputs.working_directory }}
-      role_arn: ${{ steps.environment.outputs.role_arn }}
 
     steps:
       - name: Checkout repository
@@ -154,10 +153,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Resolve AWS role
+        id: aws_role
+        shell: bash
+        env:
+          NONPROD_ROLE_ARN: ${{ secrets.AWS_NONPROD_GITHUB_ROLE_ARN }}
+          PROD_ROLE_ARN: ${{ secrets.AWS_PROD_GITHUB_ROLE_ARN }}
+        run: |
+          set -Eeuo pipefail
+
+          case "${{ inputs.environment }}" in
+            dev|int)
+              echo "role_arn=${NONPROD_ROLE_ARN}" >> "$GITHUB_OUTPUT"
+              ;;
+            prod)
+              echo "role_arn=${PROD_ROLE_ARN}" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unsupported environment."
+              exit 1
+              ;;
+          esac
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ needs.plan.outputs.role_arn }}
+          role-to-assume: ${{ steps.aws_role.outputs.role_arn }}
           aws-region: ap-south-1
 
       - name: Set up Terraform
