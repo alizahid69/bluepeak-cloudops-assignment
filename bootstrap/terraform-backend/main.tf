@@ -99,8 +99,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
 
 data "aws_iam_policy_document" "state_bucket" {
   statement {
-    sid    = "DenyInsecureTransport"
-    effect = "Deny"
+    sid     = "DenyInsecureTransport"
+    effect  = "Deny"
     actions = ["s3:*"]
 
     principals {

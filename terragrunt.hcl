@@ -10,8 +10,8 @@ locals {
   state_region      = local.account_config.locals.state_region
   state_kms_key_arn = local.account_config.locals.state_kms_key_arn
 
-  environment = local.env_config.locals.environment
-  aws_region  = local.env_config.locals.aws_region
+  environment  = local.env_config.locals.environment
+  aws_region   = local.env_config.locals.aws_region
   project_name = local.env_config.locals.project_name
   customer     = local.env_config.locals.customer
 

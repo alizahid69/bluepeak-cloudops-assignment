@@ -169,7 +169,7 @@ Type=simple
 User=root
 EnvironmentFile=/opt/counter-app/app.env
 WorkingDirectory=/opt/counter-app
-ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:${APP_PORT} --workers 2 app:app
+ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:$${APP_PORT} --workers 2 app:app
 Restart=always
 RestartSec=5
 
