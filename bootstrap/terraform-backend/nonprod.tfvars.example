@@ -1,0 +1,9 @@
+account_name   = "nonprod"
+aws_account_id = "111111111111"
+aws_region     = "ap-south-1"
+
+common_tags = {
+  Company    = "BluePeak"
+  Owner      = "CloudOps"
+  CostCenter = "Platform"
+}

@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+dnf update -y
+dnf install -y python3 python3-pip jq amazon-cloudwatch-agent
+
+mkdir -p /opt/counter-app
+
+aws ssm get-parameters-by-path \
+  --path "${parameter_path}" \
+  --with-decryption \
+  --recursive \
+  --region "${aws_region}" \
+  --output json > /tmp/app-parameters.json
+
+jq -r '.Parameters[] | "\(.Name | split("/")[-1])=\(.Value)"' \
+  /tmp/app-parameters.json > /opt/counter-app/app.env
+
+set -a
+source /opt/counter-app/app.env
+set +a
+
+aws secretsmanager get-secret-value \
+  --secret-id "$DB_SECRET_ARN" \
+  --region "${aws_region}" \
+  --query SecretString \
+  --output text > /tmp/db-secret.json
+
+DB_USER="$(jq -r '.username' /tmp/db-secret.json)"
+DB_PASSWORD="$(jq -r '.password' /tmp/db-secret.json)"
+
+cat >> /opt/counter-app/app.env <<EOF
+DB_USER=$DB_USER
+DB_PASSWORD=$DB_PASSWORD
+EOF
+
+cat > /opt/counter-app/app.py <<'PYAPP'
+import os
+from flask import Flask, jsonify, render_template_string
+import psycopg
+
+app = Flask(__name__)
+
+DB_CONFIG = {
+    "host": os.environ["DB_HOST"],
+    "port": int(os.environ.get("DB_PORT", "5432")),
+    "dbname": os.environ["DB_NAME"],
+    "user": os.environ["DB_USER"],
+    "password": os.environ["DB_PASSWORD"],
+    "connect_timeout": 5,
+}
+
+PAGE = """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>BluePeak Counter</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#f4f6f8; display:flex; align-items:center; justify-content:center; height:100vh; }
+    .card { background:white; padding:40px; border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,.1); text-align:center; }
+    #value { font-size:64px; margin:20px; }
+    button { font-size:24px; padding:12px 24px; margin:8px; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Increment / Decrement Counter</h1>
+    <div id="value">0</div>
+    <button onclick="change(-1)">-</button>
+    <button onclick="change(1)">+</button>
+  </div>
+<script>
+async function loadValue() {
+  const response = await fetch('/api/counter');
+  const data = await response.json();
+  document.getElementById('value').innerText = data.value;
+}
+async function change(delta) {
+  const response = await fetch(delta > 0 ? '/api/counter/increment' : '/api/counter/decrement', {method:'POST'});
+  const data = await response.json();
+  document.getElementById('value').innerText = data.value;
+}
+loadValue();
+</script>
+</body>
+</html>
+"""
+
+def init_db():
+    with psycopg.connect(**DB_CONFIG) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS counters (
+                    id INTEGER PRIMARY KEY,
+                    value INTEGER NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                INSERT INTO counters (id, value)
+                VALUES (1, 0)
+                ON CONFLICT (id) DO NOTHING
+            """)
+        conn.commit()
+
+@app.get("/")
+def index():
+    return render_template_string(PAGE)
+
+@app.get("/health")
+def health():
+    try:
+        with psycopg.connect(**DB_CONFIG) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+        return jsonify(status="healthy"), 200
+    except Exception as exc:
+        return jsonify(status="unhealthy", error=str(exc)), 503
+
+@app.get("/api/counter")
+def get_counter():
+    with psycopg.connect(**DB_CONFIG) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT value FROM counters WHERE id = 1")
+            value = cur.fetchone()[0]
+    return jsonify(value=value)
+
+def update_counter(delta):
+    with psycopg.connect(**DB_CONFIG) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE counters
+                SET value = value + %s, updated_at = NOW()
+                WHERE id = 1
+                RETURNING value
+                """,
+                (delta,),
+            )
+            value = cur.fetchone()[0]
+        conn.commit()
+    return jsonify(value=value)
+
+@app.post("/api/counter/increment")
+def increment():
+    return update_counter(1)
+
+@app.post("/api/counter/decrement")
+def decrement():
+    return update_counter(-1)
+
+if __name__ == "__main__":
+    init_db()
+    app.run(host="0.0.0.0", port=int(os.environ.get("APP_PORT", "8080")))
+PYAPP
+
+python3 -m pip install --upgrade pip
+python3 -m pip install flask gunicorn "psycopg[binary]"
+
+cat > /etc/systemd/system/counter-app.service <<'EOF'
+[Unit]
+Description=Counter application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+EnvironmentFile=/opt/counter-app/app.env
+WorkingDirectory=/opt/counter-app
+ExecStart=/usr/local/bin/gunicorn --bind 0.0.0.0:${APP_PORT} --workers 2 app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<EOF
+{
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/var/log/messages",
+            "log_group_name": "${log_group_name}",
+            "log_stream_name": "{instance_id}/messages"
+          }
+        ]
+      }
+    }
+  }
+}
+EOF
+
+systemctl daemon-reload
+systemctl enable --now counter-app
+systemctl enable --now amazon-cloudwatch-agent

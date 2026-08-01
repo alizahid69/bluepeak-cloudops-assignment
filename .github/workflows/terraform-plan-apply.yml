@@ -1,0 +1,152 @@
+name: Terraform Plan and Apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to deploy
+        required: true
+        type: choice
+        options:
+          - dev
+          - int
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: terraform-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+
+    outputs:
+      working_directory: ${{ steps.environment.outputs.working_directory }}
+      role_arn: ${{ steps.environment.outputs.role_arn }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve environment
+        id: environment
+        shell: bash
+        env:
+          NONPROD_ROLE_ARN: ${{ secrets.AWS_NONPROD_GITHUB_ROLE_ARN }}
+          PROD_ROLE_ARN: ${{ secrets.AWS_PROD_GITHUB_ROLE_ARN }}
+        run: |
+          set -Eeuo pipefail
+
+          case "${{ inputs.environment }}" in
+            dev)
+              echo "working_directory=live/nonprod/dev" >> "$GITHUB_OUTPUT"
+              echo "role_arn=${NONPROD_ROLE_ARN}" >> "$GITHUB_OUTPUT"
+              ;;
+            int)
+              echo "working_directory=live/nonprod/int" >> "$GITHUB_OUTPUT"
+              echo "role_arn=${NONPROD_ROLE_ARN}" >> "$GITHUB_OUTPUT"
+              ;;
+            prod)
+              echo "working_directory=live/prod/prod" >> "$GITHUB_OUTPUT"
+              echo "role_arn=${PROD_ROLE_ARN}" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unsupported environment."
+              exit 1
+              ;;
+          esac
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.environment.outputs.role_arn }}
+          aws-region: ap-south-1
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+          terraform_wrapper: false
+
+      - name: Install Terragrunt
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          TERRAGRUNT_VERSION="0.82.3"
+          curl -fsSL \
+            "https://github.com/gruntwork-io/terragrunt/releases/download/v${TERRAGRUNT_VERSION}/terragrunt_linux_amd64" \
+            -o /usr/local/bin/terragrunt
+          chmod +x /usr/local/bin/terragrunt
+
+      - name: Formatting checks
+        run: |
+          terraform fmt -check -recursive modules bootstrap
+          terragrunt hcl fmt --check
+
+      - name: Terragrunt plan
+        working-directory: ${{ steps.environment.outputs.working_directory }}
+        run: terragrunt run --all plan --non-interactive
+
+  approval:
+    name: Approval ${{ inputs.environment }}
+    needs: plan
+    runs-on: ubuntu-latest
+
+    environment:
+      name: terraform-${{ inputs.environment }}
+
+    steps:
+      - name: Approval completed
+        run: echo "Approved deployment for ${{ inputs.environment }}."
+
+  apply:
+    name: Apply ${{ inputs.environment }}
+    needs:
+      - plan
+      - approval
+    runs-on: ubuntu-latest
+
+    environment:
+      name: terraform-${{ inputs.environment }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ needs.plan.outputs.role_arn }}
+          aws-region: ap-south-1
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+          terraform_wrapper: false
+
+      - name: Install Terragrunt
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          TERRAGRUNT_VERSION="0.82.3"
+          curl -fsSL \
+            "https://github.com/gruntwork-io/terragrunt/releases/download/v${TERRAGRUNT_VERSION}/terragrunt_linux_amd64" \
+            -o /usr/local/bin/terragrunt
+          chmod +x /usr/local/bin/terragrunt
+
+      - name: Re-plan and apply
+        working-directory: ${{ needs.plan.outputs.working_directory }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          # Re-plan after approval so stale infrastructure changes are not
+          # applied if the environment changed while approval was pending.
+          terragrunt run --all plan --non-interactive
+          terragrunt run --all apply --non-interactive

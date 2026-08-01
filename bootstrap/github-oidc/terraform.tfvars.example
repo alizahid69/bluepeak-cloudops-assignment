@@ -1,0 +1,3 @@
+github_organization = "REPLACE_GITHUB_ORG"
+github_repository   = "cloudops-consulting-project"
+github_branch       = "main"

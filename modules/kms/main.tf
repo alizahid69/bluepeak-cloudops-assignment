@@ -1,0 +1,44 @@
+data "aws_caller_identity" "current" {}
+data "aws_partition" "current" {}
+
+locals {
+  purposes = toset(["ebs", "rds", "ssm", "secrets", "logs"])
+}
+
+data "aws_iam_policy_document" "this" {
+  for_each = local.purposes
+
+  statement {
+    sid    = "EnableAccountAdministration"
+    effect = "Allow"
+
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+
+    actions   = ["kms:*"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_kms_key" "this" {
+  for_each = local.purposes
+
+  description             = "${var.name_prefix} ${each.key} encryption key"
+  enable_key_rotation     = true
+  deletion_window_in_days = var.deletion_window_in_days
+  policy                  = data.aws_iam_policy_document.this[each.key].json
+
+  tags = merge(var.common_tags, {
+    Name    = "${var.name_prefix}-${each.key}"
+    Purpose = each.key
+  })
+}
+
+resource "aws_kms_alias" "this" {
+  for_each = local.purposes
+
+  name          = "alias/${var.name_prefix}-${each.key}"
+  target_key_id = aws_kms_key.this[each.key].key_id
+}
