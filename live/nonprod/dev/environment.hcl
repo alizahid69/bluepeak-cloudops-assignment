@@ -16,6 +16,9 @@ locals {
   application_port = 8080
   database_port    = 5432
 
+  asg_health_check_grace_period = 900
+  asg_default_instance_warmup   = 180
+
   instance_type    = "t4g.small"
   asg_min_size     = 1
   asg_desired_size = 1

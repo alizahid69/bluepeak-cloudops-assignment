@@ -7,8 +7,8 @@ resource "aws_autoscaling_group" "this" {
   target_group_arns   = [var.target_group_arn]
 
   health_check_type         = "ELB"
-  health_check_grace_period = 300
-  default_instance_warmup   = 180
+  health_check_grace_period = var.health_check_grace_period
+  default_instance_warmup   = var.default_instance_warmup
 
   launch_template {
     id      = var.launch_template_id
