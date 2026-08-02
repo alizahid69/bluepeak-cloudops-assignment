@@ -3,7 +3,13 @@ data "aws_partition" "current" {}
 data "aws_region" "current" {}
 
 locals {
-  purposes = toset(["ebs", "rds", "ssm", "secrets", "logs"])
+  purposes = toset([
+    "ebs",
+    "rds",
+    "ssm",
+    "secrets",
+    "logs"
+  ])
 }
 
 data "aws_iam_policy_document" "this" {
@@ -25,6 +31,7 @@ data "aws_iam_policy_document" "this" {
     resources = ["*"]
   }
 
+  # CloudWatch Logs can use only the logs CMK.
   dynamic "statement" {
     for_each = each.key == "logs" ? [1] : []
 
@@ -36,7 +43,7 @@ data "aws_iam_policy_document" "this" {
         type = "Service"
 
         identifiers = [
-          "logs.${data.aws_region.current.name}.amazonaws.com"
+          "logs.${data.aws_region.current.region}.amazonaws.com"
         ]
       }
 
@@ -51,12 +58,67 @@ data "aws_iam_policy_document" "this" {
       resources = ["*"]
 
       condition {
-        test     = "ArnEquals"
+        test     = "ArnLike"
         variable = "kms:EncryptionContext:aws:logs:arn"
 
         values = [
-          "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/ec2/${var.name_prefix}/application"
+          "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/ec2/${var.name_prefix}/*"
         ]
+      }
+    }
+  }
+
+  # Auto Scaling can use the EBS CMK to launch encrypted instances.
+  dynamic "statement" {
+    for_each = each.key == "ebs" ? [1] : []
+
+    content {
+      sid    = "AllowAutoScalingServiceLinkedRoleUseOfEbsKey"
+      effect = "Allow"
+
+      principals {
+        type = "AWS"
+
+        identifiers = [
+          "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+        ]
+      }
+
+      actions = [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:ReEncrypt*",
+        "kms:GenerateDataKey*",
+        "kms:DescribeKey"
+      ]
+
+      resources = ["*"]
+    }
+  }
+
+  # Auto Scaling requires a KMS grant for AWS-managed EBS resources.
+  dynamic "statement" {
+    for_each = each.key == "ebs" ? [1] : []
+
+    content {
+      sid    = "AllowAutoScalingServiceLinkedRoleGrantForEbs"
+      effect = "Allow"
+
+      principals {
+        type = "AWS"
+
+        identifiers = [
+          "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+        ]
+      }
+
+      actions   = ["kms:CreateGrant"]
+      resources = ["*"]
+
+      condition {
+        test     = "Bool"
+        variable = "kms:GrantIsForAWSResource"
+        values   = ["true"]
       }
     }
   }
