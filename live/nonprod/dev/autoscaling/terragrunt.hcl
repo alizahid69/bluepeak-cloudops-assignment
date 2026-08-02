@@ -28,7 +28,12 @@ dependency "ec2" {
     launch_template_latest_version = "1"
   }
 
-  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+  mock_outputs_allowed_terraform_commands = [
+    "validate",
+    "plan"
+  ]
+
+  mock_outputs_merge_strategy_with_state = "shallow"
 }
 
 dependency "alb" {
