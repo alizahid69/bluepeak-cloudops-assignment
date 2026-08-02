@@ -14,12 +14,51 @@ data "aws_iam_policy_document" "this" {
     effect = "Allow"
 
     principals {
-      type        = "AWS"
-      identifiers = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root"]
+      type = "AWS"
+
+      identifiers = [
+        "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root"
+      ]
     }
 
     actions   = ["kms:*"]
     resources = ["*"]
+  }
+
+  dynamic "statement" {
+    for_each = each.key == "logs" ? [1] : []
+
+    content {
+      sid    = "AllowCloudWatchLogsEncryption"
+      effect = "Allow"
+
+      principals {
+        type = "Service"
+
+        identifiers = [
+          "logs.${data.aws_region.current.name}.amazonaws.com"
+        ]
+      }
+
+      actions = [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:ReEncrypt*",
+        "kms:GenerateDataKey*",
+        "kms:DescribeKey"
+      ]
+
+      resources = ["*"]
+
+      condition {
+        test     = "ArnEquals"
+        variable = "kms:EncryptionContext:aws:logs:arn"
+
+        values = [
+          "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/ec2/${var.name_prefix}/application"
+        ]
+      }
+    }
   }
 }
 
