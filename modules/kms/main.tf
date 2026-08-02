@@ -6,58 +6,55 @@ locals {
   purposes = toset(["ebs", "rds", "ssm", "secrets", "logs"])
 }
 
-data "aws_iam_policy_document" "this" {
-  for_each = local.purposes
+dynamic "statement" {
+  for_each = each.key == "ebs" ? [1] : []
 
-  statement {
-    sid    = "EnableAccountAdministration"
+  content {
+    sid    = "AllowAutoScalingServiceLinkedRoleUseOfEbsKey"
     effect = "Allow"
 
     principals {
       type = "AWS"
 
       identifiers = [
-        "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root"
+        "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
       ]
     }
 
-    actions   = ["kms:*"]
+    actions = [
+      "kms:Encrypt",
+      "kms:Decrypt",
+      "kms:ReEncrypt*",
+      "kms:GenerateDataKey*",
+      "kms:DescribeKey"
+    ]
+
     resources = ["*"]
   }
+}
 
-  dynamic "statement" {
-    for_each = each.key == "logs" ? [1] : []
+dynamic "statement" {
+  for_each = each.key == "ebs" ? [1] : []
 
-    content {
-      sid    = "AllowCloudWatchLogsEncryption"
-      effect = "Allow"
+  content {
+    sid    = "AllowAutoScalingServiceLinkedRoleGrantForEbs"
+    effect = "Allow"
 
-      principals {
-        type = "Service"
+    principals {
+      type = "AWS"
 
-        identifiers = [
-          "logs.${data.aws_region.current.name}.amazonaws.com"
-        ]
-      }
-
-      actions = [
-        "kms:Encrypt",
-        "kms:Decrypt",
-        "kms:ReEncrypt*",
-        "kms:GenerateDataKey*",
-        "kms:DescribeKey"
+      identifiers = [
+        "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
       ]
+    }
 
-      resources = ["*"]
+    actions   = ["kms:CreateGrant"]
+    resources = ["*"]
 
-      condition {
-        test     = "ArnEquals"
-        variable = "kms:EncryptionContext:aws:logs:arn"
-
-        values = [
-          "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/ec2/${var.name_prefix}/application"
-        ]
-      }
+    condition {
+      test     = "Bool"
+      variable = "kms:GrantIsForAWSResource"
+      values   = ["true"]
     }
   }
 }
