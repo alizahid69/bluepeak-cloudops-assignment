@@ -56,4 +56,7 @@ inputs = {
   min_size         = local.env.locals.asg_min_size
   desired_capacity = local.env.locals.asg_desired_size
   max_size         = local.env.locals.asg_max_size
+
+  health_check_grace_period = local.env.locals.asg_health_check_grace_period
+  default_instance_warmup   = local.env.locals.asg_default_instance_warmup
 }
